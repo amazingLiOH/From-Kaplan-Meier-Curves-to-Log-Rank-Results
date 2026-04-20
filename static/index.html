@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Curve to Contrast</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page-glow page-glow-a"></div>
+    <div class="page-glow page-glow-b"></div>
+    <div class="grid-noise"></div>
+
+    <header class="hero shell">
+      <div id="protocolNotice"></div>
+      <div class="eyebrow-row">
+        <span class="eyebrow">Curve to Contrast</span>
+      </div>
+      <div class="hero-grid">
+        <div>
+          <h1>From Kaplan-Meier Curves to Log-Rank Results.</h1>
+          <p class="hero-copy">
+            This prototype website uploads a Kaplan-Meier image, uses a vision-capable LLM API to estimate event times
+            and censor indicators, reconstructs pseudo-records, and computes a two-arm log-rank test in the browser.
+            It also searches PubMed for treatment chains like A vs B and B vs C, then combines saved two-arm studies
+            into an indirect A vs C comparison.
+          </p>
+        </div>
+        <aside class="hero-card panel">
+          <h2>Workflow</h2>
+          <ol class="hero-steps">
+            <li>Upload a Kaplan-Meier figure and label the treatment arms.</li>
+            <li>Send the image to an OpenAI Responses-compatible LLM endpoint.</li>
+            <li>Review the reconstructed event table, pseudo-records, and warnings.</li>
+            <li>Compute two-arm log-rank results and reconstructed survival curves.</li>
+            <li>Optionally search PubMed and combine two saved studies through a common comparator.</li>
+          </ol>
+        </aside>
+      </div>
+    </header>
+
+    <main class="shell main-stack">
+      <section class="panel split-panel">
+        <div class="section-heading">
+          <span class="section-kicker">Core Extraction Lab</span>
+          <h2>LLM-assisted curve reconstruction</h2>
+        </div>
+
+        <div class="two-column">
+          <form id="extractForm" class="form-stack">
+            <div class="card-sheet">
+              <h3>LLM connection</h3>
+              <label>
+                <span>API base URL</span>
+                <input id="apiBaseUrl" name="apiBaseUrl" type="text" value="https://api.openai.com" />
+              </label>
+              <label>
+                <span>API key</span>
+                <input
+                  id="apiKey"
+                  name="apiKey"
+                  type="password"
+                  placeholder="sk-..."
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                />
+              </label>
+              <label>
+                <span>Model</span>
+                <input id="model" name="model" type="text" value="gpt-5.4" />
+              </label>
+              <p class="field-hint">
+                Each visitor must enter their own API key. This site forwards it for the extraction request and does
+                not rely on a server-side fallback key.
+              </p>
+            </div>
+
+            <div class="card-sheet">
+              <h3>Study setup</h3>
+              <div class="field-grid">
+                <label>
+                  <span>Arm 1 label</span>
+                  <input id="leftArm" name="leftArm" type="text" value="Treatment A" />
+                </label>
+                <label>
+                  <span>Arm 2 label</span>
+                  <input id="rightArm" name="rightArm" type="text" value="Treatment B" />
+                </label>
+              </div>
+              <p class="field-hint">
+                Fill these in by legend order or number-at-risk order. This version extracts exactly two groups.
+              </p>
+              <div class="field-grid">
+                <label>
+                  <span>Study label</span>
+                  <input id="studyLabel" name="studyLabel" type="text" placeholder="Trial name or citation" />
+                </label>
+                <label>
+                  <span>Time unit</span>
+                  <select id="timeUnit" name="timeUnit">
+                    <option value="months">Months</option>
+                    <option value="weeks">Weeks</option>
+                    <option value="days">Days</option>
+                    <option value="years">Years</option>
+                  </select>
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  <span>Known x-axis max</span>
+                  <input id="xAxisMax" name="xAxisMax" type="text" placeholder="24" />
+                </label>
+                <label>
+                  <span>Upload KM figure</span>
+                  <input id="curveImage" name="curveImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                </label>
+              </div>
+              <label>
+                <span>Numbers at risk or calibration hints</span>
+                <textarea
+                  id="numbersAtRisk"
+                  name="numbersAtRisk"
+                  rows="4"
+                  placeholder="Example: Times 0, 6, 12, 18, 24. A: 120, 98, 75, 53, 31. B: 118, 90, 62, 40, 19."
+                ></textarea>
+              </label>
+              <label>
+                <span>Study context</span>
+                <textarea
+                  id="studyContext"
+                  name="studyContext"
+                  rows="4"
+                  placeholder="Disease area, endpoint type, whether the plot shows overall survival or progression-free survival, or anything the model should know."
+                ></textarea>
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button id="extractButton" class="button primary" type="submit">Extract Event Table</button>
+              <button class="button secondary" type="button" id="demoStudyButton">Load Demo Study</button>
+            </div>
+          </form>
+
+          <div class="preview-stack">
+            <div class="card-sheet preview-card">
+              <div class="preview-header">
+                <h3>Figure preview</h3>
+                <span id="extractStatus" class="status-pill idle">Waiting for input</span>
+              </div>
+              <div class="image-frame">
+                <img id="imagePreview" alt="Kaplan-Meier preview" hidden />
+                <div id="imagePlaceholder" class="image-placeholder">
+                  Upload a Kaplan-Meier figure to preview it here before extraction.
+                </div>
+              </div>
+            </div>
+
+            <div class="card-sheet">
+              <h3>What gets returned</h3>
+              <ul class="plain-list">
+                <li>Distinct event times and censor counts per arm.</li>
+                <li>Expanded pseudo-records with time and event indicator.</li>
+                <li>Two-arm log-rank test results, p-value, and approximate hazard ratio.</li>
+                <li>Model notes and extraction warnings for manual review.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="resultsSection" class="panel results-panel hidden">
+        <div class="section-heading">
+          <span class="section-kicker">Results</span>
+          <h2>Reconstructed data and log-rank results</h2>
+        </div>
+
+        <div id="summaryCards" class="summary-grid"></div>
+
+        <div class="result-grid">
+          <div class="card-sheet chart-card">
+            <div class="result-header">
+              <h3>Reconstructed survival curves</h3>
+              <button id="saveStudyButton" class="button secondary" type="button">Save To Study Vault</button>
+            </div>
+            <svg id="survivalChart" viewBox="0 0 760 420" role="img" aria-label="Kaplan-Meier reconstruction chart"></svg>
+          </div>
+
+          <div class="info-strip">
+            <div class="card-sheet compact-card">
+              <h3>Study summary</h3>
+              <div id="studySummary"></div>
+            </div>
+
+            <div class="card-sheet compact-card">
+              <h3>Extraction notes</h3>
+              <ul id="noteList" class="plain-list"></ul>
+            </div>
+
+            <div class="card-sheet warning-card compact-card">
+              <h3>Warnings to review</h3>
+              <ul id="warningList" class="plain-list"></ul>
+            </div>
+          </div>
+
+          <div class="card-sheet table-card split-table-card">
+            <h3>Structured event tables</h3>
+            <div id="eventTableSplit" class="split-event-tables"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <span class="section-kicker">Saved Studies</span>
+          <h2>Study vault for downstream comparisons</h2>
+        </div>
+        <div id="studyVault" class="vault-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <span class="section-kicker">Literature Search</span>
+          <h2>Find candidate A vs B and B vs C articles on PubMed</h2>
+        </div>
+
+        <div class="two-column literature-grid">
+          <div class="card-sheet">
+            <div class="result-header">
+              <h3>Search pair 1</h3>
+            </div>
+            <div class="form-stack tight">
+              <div class="field-grid">
+                <label>
+                  <span>Left treatment</span>
+                  <input id="searchOneLeft" type="text" value="Treatment A" />
+                </label>
+                <label>
+                  <span>Right treatment</span>
+                  <input id="searchOneRight" type="text" value="Treatment B" />
+                </label>
+              </div>
+              <label>
+                <span>Condition</span>
+                <input id="searchOneCondition" type="text" placeholder="e.g. metastatic melanoma" />
+              </label>
+              <label>
+                <span>Extra PubMed keywords</span>
+                <input id="searchOneKeywords" type="text" value="phase III OR randomized" />
+              </label>
+              <button id="searchOneButton" class="button primary" type="button">Search PubMed</button>
+              <p id="searchOneStatus" class="field-hint"></p>
+            </div>
+            <div id="searchOneResults" class="article-list"></div>
+          </div>
+
+          <div class="card-sheet">
+            <div class="result-header">
+              <h3>Search pair 2</h3>
+            </div>
+            <div class="form-stack tight">
+              <div class="field-grid">
+                <label>
+                  <span>Left treatment</span>
+                  <input id="searchTwoLeft" type="text" value="Treatment B" />
+                </label>
+                <label>
+                  <span>Right treatment</span>
+                  <input id="searchTwoRight" type="text" value="Treatment C" />
+                </label>
+              </div>
+              <label>
+                <span>Condition</span>
+                <input id="searchTwoCondition" type="text" placeholder="e.g. metastatic melanoma" />
+              </label>
+              <label>
+                <span>Extra PubMed keywords</span>
+                <input id="searchTwoKeywords" type="text" value="phase III OR randomized" />
+              </label>
+              <button id="searchTwoButton" class="button primary" type="button">Search PubMed</button>
+              <p id="searchTwoStatus" class="field-hint"></p>
+            </div>
+            <div id="searchTwoResults" class="article-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <span class="section-kicker">Indirect Comparison</span>
+          <h2>Indirect treatment comparison through a shared comparator</h2>
+        </div>
+
+        <div class="two-column indirect-grid">
+          <div class="card-sheet">
+            <div class="field-grid">
+              <label>
+                <span>Saved study 1</span>
+                <select id="studyOneSelect"></select>
+              </label>
+              <label>
+                <span>Saved study 2</span>
+                <select id="studyTwoSelect"></select>
+              </label>
+            </div>
+            <button id="indirectButton" class="button primary" type="button">Compute Indirect Comparison</button>
+            <p class="field-hint">
+              Pick two saved studies that share one common treatment, such as A vs B and B vs C.
+            </p>
+          </div>
+
+          <div id="indirectResult" class="card-sheet indirect-result">
+            <h3>No indirect comparison yet</h3>
+            <p>Select two saved studies to estimate the indirect A vs C contrast.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
