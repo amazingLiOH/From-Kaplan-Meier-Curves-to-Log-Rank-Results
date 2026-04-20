@@ -167,11 +167,12 @@ def km_schema():
             "reported_logrank": {
                 "type": "object",
                 "properties": {
-                    "p_value": {"type": "number", "minimum": 0, "maximum": 1},
-                    "chi_square": {"type": "number", "minimum": 0},
-                    "degrees_freedom": {"type": "integer", "minimum": 1},
-                    "reported_text": {"type": "string"},
+                    "p_value": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+                    "chi_square": {"type": ["number", "null"], "minimum": 0},
+                    "degrees_freedom": {"type": ["integer", "null"], "minimum": 1},
+                    "reported_text": {"type": ["string", "null"]},
                 },
+                "required": ["p_value", "chi_square", "degrees_freedom", "reported_text"],
                 "additionalProperties": False,
             },
             "notes": {"type": "array", "items": {"type": "string"}},
@@ -182,6 +183,7 @@ def km_schema():
             "arms",
             "event_table",
             "numbers_at_risk",
+            "reported_logrank",
             "notes",
             "warnings",
         ],
@@ -220,7 +222,7 @@ Instructions:
 8. `survival_after_time` is the arm-specific survival probability immediately after that time, between 0 and 1.
 9. Keep counts integer-valued and internally consistent with any numbers-at-risk text shown in the figure or provided above.
 10. Prefer fewer, cleaner rows over overfitting noise. If the image is ambiguous, note that uncertainty in warnings.
-11. If the figure explicitly prints a log-rank p-value, chi-square, or degrees of freedom, capture it in `reported_logrank`. If nothing is printed, omit `reported_logrank`.
+11. Always include `reported_logrank`. If the figure explicitly prints a log-rank p-value, chi-square, or degrees of freedom, capture them there. If nothing is printed, set all `reported_logrank` fields to null.
 12. Do not fabricate article metadata. If the title is not visible, keep the supplied study label.
 13. Return only valid JSON matching the schema.
 """.strip()
